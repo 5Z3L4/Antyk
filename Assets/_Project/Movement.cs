@@ -11,8 +11,7 @@ public class Movement : MonoBehaviour
     [SerializeField] float gravity = -30f;
     [SerializeField] Transform groundCheck;
     [SerializeField] LayerMask ground;  
- 
-    public float jumpHeight = 6f;
+
     float velocityY;
     bool isGrounded;
  
