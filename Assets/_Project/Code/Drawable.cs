@@ -87,40 +87,7 @@ public class ScribbleSurface : MonoBehaviour
             FillPixels(interpolatedPosition, thickness, drawColor);
         }
     }
-
-    public void PreparePixels(Vector2 center, int radius, Color color)
-    {
-        int centerX = (int)center.x;
-        int centerY = (int)center.y;
-
-        for (int x = centerX - radius; x <= centerX + radius; x++)
-        {
-            if (x >= (int)surfaceSprite.rect.width || x < 0)
-                continue;
-
-            for (int y = centerY - radius; y <= centerY + radius; y++)
-            {
-                MarkPixelForUpdate(x, y, color);
-            }
-        }
-    }
-
-    public void MarkPixelForUpdate(int x, int y, Color color)
-    {
-        int pixelIndex = y * (int)surfaceSprite.rect.width + x;
-
-        if (pixelIndex > currentPixelColors.Length || pixelIndex < 0)
-            return;
-
-        currentPixelColors[pixelIndex] = color;
-    }
-
-    public void ApplyPixelUpdates()
-    {
-        surfaceTexture.SetPixels32(currentPixelColors);
-        surfaceTexture.Apply();
-    }
-
+    
     public void FillPixels(Vector2 center, int radius, Color color)
     {
         int centerX = (int)center.x;
