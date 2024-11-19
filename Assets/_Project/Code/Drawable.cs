@@ -1,179 +1,161 @@
 using UnityEngine;
-using Vector2 = UnityEngine.Vector2;
-using Vector3 = UnityEngine.Vector3;
 
-namespace FreeDraw
+public class ScribbleSurface : MonoBehaviour
 {
-    [RequireComponent(typeof(SpriteRenderer))]
-    public class Drawable : MonoBehaviour
+    public LayerMask InteractionLayer;
+    public Color BackgroundColor = new(0, 0, 0, 0);
+
+    public bool ClearTextureOnStart = true;
+    private Sprite surfaceSprite;
+    private Texture2D surfaceTexture;
+
+    private Vector2 lastDragPosition;
+    private Color[] baseColors;
+    private Color clearColor;
+    private Color32[] currentPixelColors;
+    private bool wasMouseDownLastFrame = false;
+    private bool skipDrawingThisDrag = false;
+    private Camera mainCamera;
+
+    void Start()
     {
-        public static Color PenColor = Color.black;
-        public static int PenWidth = 3;
+        surfaceSprite = GetComponent<SpriteRenderer>().sprite;
+        surfaceTexture = surfaceSprite.texture;
 
-        public delegate void BrushFunction(Vector2 worldPosition);
-        public BrushFunction CurrentBrush;
+        baseColors = new Color[(int)surfaceSprite.rect.width * (int)surfaceSprite.rect.height];
+        for (int i = 0; i < baseColors.Length; i++)
+            baseColors[i] = BackgroundColor;
 
-        public LayerMask DrawingLayers;
-        public bool ResetCanvasOnPlay = true;
-        public Color ResetColor = new Color(0, 0, 0, 0);
+        if (ClearTextureOnStart)
+            ClearSurface();
 
-        public static Drawable Instance;
-        Sprite drawableSprite;
-        Texture2D drawableTexture;
+        mainCamera = FindObjectOfType<Camera>();
+    }
 
-        Vector2 previousDragPosition;
-        Color[] cleanColorsArray;
-        Color transparent;
-        Color32[] currentColors;
-        bool mousePreviouslyHeldDown = false;
-        bool noDrawingOnCurrentDrag = false;
-        private Camera camera;
-
-        public void PenBrush(Vector3 worldPoint)
+    void Update()
+    {
+        bool isMouseDown = Input.GetMouseButton(0);
+        if (isMouseDown && !skipDrawingThisDrag)
         {
-            Vector3 pixelPosition = WorldToPixelCoordinates(worldPoint);
-            currentColors = drawableTexture.GetPixels32();
+            Ray mouseRay = mainCamera.ScreenPointToRay(Input.mousePosition);
 
-            if (previousDragPosition == Vector2.zero)
+            if (Physics.Raycast(mouseRay, out RaycastHit hitInfo, Mathf.Infinity, InteractionLayer.value))
             {
-                ColorPixels(pixelPosition, PenWidth, PenColor);
+                DrawLine(hitInfo.point);
             }
             else
             {
-                ColorBetween(previousDragPosition, pixelPosition, PenWidth, PenColor);
-            }
-
-            previousDragPosition = pixelPosition;
-        }
-
-        void Update()
-        {
-            bool mouseHeldDown = Input.GetMouseButton(0);
-            if (mouseHeldDown && !noDrawingOnCurrentDrag)
-            {
-                Ray ray = camera.ScreenPointToRay(Input.mousePosition);
-
-                if (Physics.Raycast(ray, out RaycastHit hit, Mathf.Infinity, DrawingLayers.value))
+                lastDragPosition = Vector2.zero;
+                if (!wasMouseDownLastFrame)
                 {
-                    PenBrush(hit.point);
-                }
-                else
-                {
-                    previousDragPosition = Vector2.zero;
-                    if (!mousePreviouslyHeldDown)
-                    {
-                        noDrawingOnCurrentDrag = true;
-                    }
-                }
-            }
-            else if (!mouseHeldDown)
-            {
-                previousDragPosition = Vector2.zero;
-                noDrawingOnCurrentDrag = false;
-            }
-            mousePreviouslyHeldDown = mouseHeldDown;
-        }
-
-        public void ColorBetween(Vector2 startPoint, Vector2 endPoint, int width, Color color)
-        {
-            float distance = Vector2.Distance(startPoint, endPoint);
-            Vector2 direction = (startPoint - endPoint).normalized;
-
-            Vector2 currentPosition = startPoint;
-            float lerpSteps = 1 / distance;
-
-            for (float lerp = 0; lerp <= 1; lerp += lerpSteps)
-            {
-                currentPosition = Vector2.Lerp(startPoint, endPoint, lerp);
-                ColorPixels(currentPosition, width, color);
-            }
-        }
-
-        public void MarkPixelsToColor(Vector2 centerPixel, int penThickness, Color penColor)
-        {
-            int centerX = (int)centerPixel.x;
-            int centerY = (int)centerPixel.y;
-
-            for (int x = centerX - penThickness; x <= centerX + penThickness; x++)
-            {
-                if (x >= (int)drawableSprite.rect.width || x < 0)
-                    continue;
-
-                for (int y = centerY - penThickness; y <= centerY + penThickness; y++)
-                {
-                    MarkPixelToChange(x, y, penColor);
+                    skipDrawingThisDrag = true;
                 }
             }
         }
-
-        public void MarkPixelToChange(int x, int y, Color color)
+        else if (!isMouseDown)
         {
-            int arrayPos = y * (int)drawableSprite.rect.width + x;
-
-            if (arrayPos > currentColors.Length || arrayPos < 0)
-                return;
-
-            currentColors[arrayPos] = color;
+            lastDragPosition = Vector2.zero;
+            skipDrawingThisDrag = false;
         }
 
-        public void ApplyMarkedPixelChanges()
+        wasMouseDownLastFrame = isMouseDown;
+    }
+
+    public void DrawLine(Vector3 worldPosition)
+    {
+        Vector3 pixelCoords = TransformToPixelCoordinates(worldPosition);
+        currentPixelColors = surfaceTexture.GetPixels32();
+
+        if (lastDragPosition == Vector2.zero)
+            FillPixels(pixelCoords, 3, Color.black);
+        else
+            DrawLineSegment(lastDragPosition, pixelCoords, 3, Color.black);
+
+        lastDragPosition = pixelCoords;
+    }
+
+    public void DrawLineSegment(Vector2 startPoint, Vector2 endPoint, int thickness, Color drawColor)
+    {
+        float segmentLength = Vector2.Distance(startPoint, endPoint);
+
+        Vector2 interpolatedPosition = startPoint;
+        float interpolationSteps = 1 / segmentLength;
+
+        for (float t = 0; t <= 1; t += interpolationSteps)
         {
-            drawableTexture.SetPixels32(currentColors);
-            drawableTexture.Apply();
+            interpolatedPosition = Vector2.Lerp(startPoint, endPoint, t);
+            FillPixels(interpolatedPosition, thickness, drawColor);
         }
+    }
 
-        public void ColorPixels(Vector2 centerPixel, int penThickness, Color penColor)
+    public void PreparePixels(Vector2 center, int radius, Color color)
+    {
+        int centerX = (int)center.x;
+        int centerY = (int)center.y;
+
+        for (int x = centerX - radius; x <= centerX + radius; x++)
         {
-            int centerX = (int)centerPixel.x;
-            int centerY = (int)centerPixel.y;
+            if (x >= (int)surfaceSprite.rect.width || x < 0)
+                continue;
 
-            for (int x = centerX - penThickness; x <= centerX + penThickness; x++)
+            for (int y = centerY - radius; y <= centerY + radius; y++)
             {
-                for (int y = centerY - penThickness; y <= centerY + penThickness; y++)
-                {
-                    drawableTexture.SetPixel(x, y, penColor);
-                }
+                MarkPixelForUpdate(x, y, color);
             }
-            drawableTexture.Apply();
         }
+    }
 
-        public Vector3 WorldToPixelCoordinates(Vector3 worldPosition)
+    public void MarkPixelForUpdate(int x, int y, Color color)
+    {
+        int pixelIndex = y * (int)surfaceSprite.rect.width + x;
+
+        if (pixelIndex > currentPixelColors.Length || pixelIndex < 0)
+            return;
+
+        currentPixelColors[pixelIndex] = color;
+    }
+
+    public void ApplyPixelUpdates()
+    {
+        surfaceTexture.SetPixels32(currentPixelColors);
+        surfaceTexture.Apply();
+    }
+
+    public void FillPixels(Vector2 center, int radius, Color color)
+    {
+        int centerX = (int)center.x;
+        int centerY = (int)center.y;
+
+        for (int x = centerX - radius; x <= centerX + radius; x++)
         {
-            Vector3 localPos = transform.InverseTransformPoint(worldPosition);
-
-            float pixelWidth = drawableSprite.rect.width;
-            float pixelHeight = drawableSprite.rect.height;
-            float unitsToPixels = pixelWidth / drawableSprite.bounds.size.x * transform.localScale.x;
-
-            float centeredX = localPos.x * unitsToPixels + pixelWidth / 2;
-            float centeredY = localPos.y * unitsToPixels + pixelHeight / 2;
-
-            Vector2 pixelPos = new Vector2(Mathf.RoundToInt(centeredX), Mathf.RoundToInt(centeredY));
-
-            return pixelPos;
+            for (int y = centerY - radius; y <= centerY + radius; y++)
+            {
+                surfaceTexture.SetPixel(x, y, color);
+            }
         }
 
-        public void ResetCanvas()
-        {
-            drawableTexture.SetPixels(cleanColorsArray);
-            drawableTexture.Apply();
-        }
+        surfaceTexture.Apply();
+    }
 
-        void Awake()
-        {
-            Instance = this;
+    public Vector3 TransformToPixelCoordinates(Vector3 worldPosition)
+    {
+        Vector3 localPosition = transform.InverseTransformPoint(worldPosition);
 
-            drawableSprite = this.GetComponent<SpriteRenderer>().sprite;
-            drawableTexture = drawableSprite.texture;
+        float textureWidth = surfaceSprite.rect.width;
+        float textureHeight = surfaceSprite.rect.height;
+        float scaleFactor = textureWidth / surfaceSprite.bounds.size.x * transform.localScale.x;
 
-            cleanColorsArray = new Color[(int)drawableSprite.rect.width * (int)drawableSprite.rect.height];
-            for (int x = 0; x < cleanColorsArray.Length; x++)
-                cleanColorsArray[x] = ResetColor;
+        float adjustedX = localPosition.x * scaleFactor + textureWidth / 2;
+        float adjustedY = localPosition.y * scaleFactor + textureHeight / 2;
 
-            if (ResetCanvasOnPlay)
-                ResetCanvas();
+        Vector2 pixelCoords = new(Mathf.RoundToInt(adjustedX), Mathf.RoundToInt(adjustedY));
 
-            camera = FindObjectOfType<Camera>();
-        }
+        return pixelCoords;
+    }
+
+    public void ClearSurface()
+    {
+        surfaceTexture.SetPixels(baseColors);
+        surfaceTexture.Apply();
     }
 }
